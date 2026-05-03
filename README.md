@@ -237,21 +237,6 @@ $strategicInterval = 180  # game-seconds between strategic advice passes
 
 ---
 
-## What's next — Electron overlay
-
-The terminal approach works but a transparent always-on-top overlay is the natural upgrade:
-
-- HUD layer — HP, mana, gold, KDA rendered over the game
-- Visual fight pulse — indicator when fight detection fires
-- Item build timeline — visual tracker showing what to buy next
-- Voice alerts — text-to-speech for critical events so you never look away
-- Ally tracker — minimap overlay using GSI minimap data (already enabled in config)
-- Post-game analytics — GPM trend, death heatmap, session replay
-
-`dota_state.json` is already the live data source. Electron just reads and renders it.
-
----
-
 ## License
 
 MIT
