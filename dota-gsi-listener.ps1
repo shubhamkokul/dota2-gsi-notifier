@@ -1,4 +1,4 @@
-# Dota 2 GSI Listener
+﻿# Dota 2 GSI Listener
 # Run this before/during a Dota 2 session.
 # Saves live game state to dota_state.json so Claude can read it.
 

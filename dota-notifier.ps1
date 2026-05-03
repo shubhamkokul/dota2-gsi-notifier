@@ -1,4 +1,4 @@
-# Dota 2 Notifier v5 — Claude AI powered
+﻿# Dota 2 Notifier v5 — Claude AI powered
 # Fast loop (8s)     — event detection: fights, kills, deaths, towers, levels, ult
 # KDA check (120s)   — smart pacing: reminder if quiet, force call if 5min+ no events
 # Late game (>50min) — intervals stretch to 6-8 min (game slows down)
