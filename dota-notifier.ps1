@@ -63,17 +63,43 @@ function Get-CurrentItems($s) {
 }
 
 function Get-EnemyHeroes($s) {
-    if (-not $s.draft -or -not $s.player) { return @() }
-    $key = if ($s.player.team_name -eq "radiant") { "team3" } else { "team2" }
-    $d = $s.draft.$key; if (-not $d) { return @() }
-    0..4 | ForEach-Object { $p = $d."pick$_"; if ($p -and $p.id) { Get-HeroName $p.id } } | Where-Object { $_ }
+    if (-not $s.player) { return @() }
+    # Try draft first (populated in Captains Mode and some All Pick variants)
+    $draftKey = if ($s.player.team_name -eq "radiant") { "team3" } else { "team2" }
+    if ($s.draft -and $s.draft.$draftKey) {
+        $d = $s.draft.$draftKey
+        $fromDraft = 0..4 | ForEach-Object { $p = $d."pick$_"; if ($p -and $p.id) { Get-HeroName $p.id } } | Where-Object { $_ }
+        if ($fromDraft.Count -gt 0) { return $fromDraft }
+    }
+    # Fallback: read enemy heroes from minimap (works in All Pick — team 2=radiant, team 3=dire)
+    $enemyTeam = if ($s.player.team_name -eq "radiant") { 3 } else { 2 }
+    if ($s.minimap) {
+        $myName = $s.hero.name
+        return $s.minimap.PSObject.Properties.Value |
+            Where-Object { $_.team -eq $enemyTeam -and $_.unitname -match "npc_dota_hero_" } |
+            ForEach-Object { Get-HeroName $_.unitname } | Select-Object -Unique
+    }
+    return @()
 }
 
 function Get-AlliedHeroes($s) {
-    if (-not $s.draft -or -not $s.player) { return @() }
-    $key = if ($s.player.team_name -eq "radiant") { "team2" } else { "team3" }
-    $d = $s.draft.$key; if (-not $d) { return @() }
-    0..4 | ForEach-Object { $p = $d."pick$_"; if ($p -and $p.id) { Get-HeroName $p.id } } | Where-Object { $_ }
+    if (-not $s.player) { return @() }
+    # Try draft first
+    $draftKey = if ($s.player.team_name -eq "radiant") { "team2" } else { "team3" }
+    if ($s.draft -and $s.draft.$draftKey) {
+        $d = $s.draft.$draftKey
+        $fromDraft = 0..4 | ForEach-Object { $p = $d."pick$_"; if ($p -and $p.id) { Get-HeroName $p.id } } | Where-Object { $_ }
+        if ($fromDraft.Count -gt 0) { return $fromDraft }
+    }
+    # Fallback: minimap allies, excluding the player's own hero to avoid duplicates
+    $allyTeam = if ($s.player.team_name -eq "radiant") { 2 } else { 3 }
+    if ($s.minimap) {
+        $myName = $s.hero.name
+        return $s.minimap.PSObject.Properties.Value |
+            Where-Object { $_.team -eq $allyTeam -and $_.unitname -match "npc_dota_hero_" -and $_.unitname -ne $myName } |
+            ForEach-Object { Get-HeroName $_.unitname } | Select-Object -Unique
+    }
+    return @()
 }
 
 function Get-UltAbility($s) {
