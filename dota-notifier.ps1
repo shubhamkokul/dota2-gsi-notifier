@@ -139,11 +139,16 @@ One sentence per line. Be specific: name items, heroes, objectives."
 
     $userMsg = "$trigger | $ctx"
 
+    # PS5.1 bug: ConvertTo-Json unwraps single-element arrays into plain objects.
+    # messages must serialize as [{...}] not {...} — use ArrayList to force array output.
+    $msgList = [System.Collections.ArrayList]@()
+    $msgList.Add([ordered]@{ role = "user"; content = $userMsg }) | Out-Null
+
     $bodyObj = [ordered]@{
         model      = "claude-haiku-4-5-20251001"
         max_tokens = 120
         system     = $systemPrompt
-        messages   = @(@{ role = "user"; content = $userMsg })
+        messages   = $msgList
     }
     $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes(($bodyObj | ConvertTo-Json -Depth 5 -Compress))
 
@@ -176,9 +181,19 @@ One sentence per line. Be specific: name items, heroes, objectives."
         return $points
 
     } catch {
-        $msg = $_.Exception.Message
-        if ($msg.Length -gt 100) { $msg = $msg.Substring(0, 100) }
-        return @("Claude error: $msg")
+        # Try to read the actual API error body — much more useful than the HTTP status line
+        try {
+            $stream = $_.Exception.Response.GetResponseStream()
+            $reader = [System.IO.StreamReader]::new($stream)
+            $errBody = ($reader.ReadToEnd() | ConvertFrom-Json).error.message
+            $reader.Close()
+            if (-not $errBody) { throw }
+            return @("Claude error: $errBody")
+        } catch {
+            $msg = $_.Exception.Message
+            if ($msg.Length -gt 120) { $msg = $msg.Substring(0, 120) }
+            return @("Claude error: $msg")
+        }
     }
 }
 
