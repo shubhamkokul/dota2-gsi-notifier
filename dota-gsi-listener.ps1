@@ -5,7 +5,7 @@
 # Run this FIRST, before starting dota-notifier.ps1.
 # Keep it running for the entire session — if it stops, the notifier gets stale data.
 
-$port       = 49153                          # must match uri in gamestate_integration_claude.cfg
+$port       = 49152                          # must match uri in gamestate_integration_claude.cfg
 $outputFile = "$PSScriptRoot\dota_state.json"
 
 # Change-tracking — only log to console when something meaningful shifts.
