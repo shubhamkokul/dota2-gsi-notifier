@@ -22,25 +22,74 @@ Most Dota overlays hardcode their advice — fixed item builds per hero, static 
 
 ---
 
-## How it works
+## Architecture
 
 ```
-Dota 2 (running)
-  └─ GSI HTTP POST every ~1 second
-        └─► dota-gsi-listener.ps1  (HTTP server, port 49152)
-                └─ saves → dota_state.json
-                      └─► dota-notifier.ps1  (reads every 8s)
-                                └─ Claude API (claude-haiku) → advice
-                                └─ terminal output (red = urgent, cyan = strategic)
+┌──────────────────────────────────────────────────────────────┐
+│                      DOTA 2 (running)                        │
+│             GSI HTTP POST to localhost:49152 every ~1s       │
+└────────────────────────────┬─────────────────────────────────┘
+                             │ raw JSON payload
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│               dota-gsi-listener.ps1                          │
+│         HttpListener on port 49152                           │
+│                                                              │
+│  · Receives the JSON from Dota 2                             │
+│  · Logs changes to console (KDA / gold band / HP band)       │
+│  · Writes full state → dota_state.json                       │
+│  · Responds 200 OK so Dota keeps sending                     │
+└────────────────────────────┬─────────────────────────────────┘
+                             │ writes
+                             ▼
+                      dota_state.json
+                             │ reads every 8s
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│                 dota-notifier.ps1                            │
+│                                                              │
+│  FAST LOOP — every 8s ─────────────────────────────────────  │
+│    HP drop > 15%          → fight alert          [Claude]    │
+│    HP drop > 35%          → critical damage      [Claude]    │
+│    HP < 20%               → escape advice        [Claude]    │
+│    Kill / death / assist  → context response     [Claude]    │
+│    Respawn                → where to go          [Claude]    │
+│    Level 6/11/16/20/25    → power spike          [Claude]    │
+│    Ult off cooldown       → engage signal        [Claude]    │
+│    Tower attacked/lost    → defend or trade      [Claude]    │
+│                                                              │
+│  KDA CHECK — every 120s (360s after 50 min) ───────────────  │
+│    KDA changed?           → events already fired, skip       │
+│    < 5min since last call → hardcoded reminder   [free]      │
+│    ≥ 5min since last call → strategic call       [Claude]    │
+│                                                              │
+│  GAME START ───────────────────────────────────────────────  │
+│    Draft known            → full game plan       [Claude]    │
+└────────────────────────────┬─────────────────────────────────┘
+                             │ HTTPS POST (Haiku, max 120 tokens)
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│              Claude API  (claude-haiku-4-5)                  │
+│         api.anthropic.com/v1/messages                        │
+│                                                              │
+│  Input:  system prompt + compact game context + trigger      │
+│          ~30 + ~60 + ~20 = ~110 tokens per call              │
+│  Output: 3-line NOW / NEXT / WATCH, capped at 120 tokens     │
+└────────────────────────────┬─────────────────────────────────┘
+                             │
+                             ▼
+                     Terminal output
+    [!!] red = urgent    [>>] cyan = info    [--] gray = free reminder
 ```
 
-Two polling loops:
-| Loop | Interval | What it covers |
-|---|---|---|
-| Fast | 8 seconds | HP trend (fight detection), kills, deaths, assists, level spikes, ult cooldown, towers |
-| Slow | Every 3 game-minutes | Strategic check-in: item timing, Roshan windows, game phase milestones |
-
-Every trigger sends your current game state (hero, level, HP, mana, gold, GPM, items, KDA, enemies, allies, buyback) to Claude and gets back 3 specific recommendations.
+Every Claude call shows timing and token usage:
+```
+[08:42:11] [>>] KILL! DRAGON KNIGHT K:3
+       1. NOW: Grab the rune at river and push mid — their carry is out of position.
+       2. NEXT: Convert this lead into a tower; tier 1 mid should fall before they respawn.
+       3. WATCH: Storm Spirit has blink — he can re-engage fast once he buys back.
+       [claude 612ms | in:104 out:88 | session:312/264]
+```
 
 ---
 
@@ -57,10 +106,12 @@ Every trigger sends your current game state (hero, level, HP, mana, gold, GPM, i
 - Your tower under attack or destroyed
 - Enemy tower low or destroyed
 
-**Strategic (slow loop — every 3 game-minutes):**
+**Strategic (KDA check — every 120s, stretches to 360s after 50 min):**
+- KDA changed since last check → events already fired advice, skip
+- KDA unchanged, last Claude call < 5 min ago → free hardcoded reminder, no API call
+- KDA unchanged, 5+ min silence → force strategic Claude call with time milestones and Roshan window
 - Time milestones: 3min bounties, 7min rotation, 10min tier 1, 15min item check, 20min objectives, 25min group up, 30min commit, 40min late game
 - Roshan windows: ~8, 20, 30, 40 minute marks
-- General strategic check-in with full game context
 
 ---
 
@@ -145,7 +196,7 @@ powershell -ExecutionPolicy Bypass -File dota-notifier.ps1
 
 You should see:
 ```
-Dota Notifier v4 | Claude-powered | fast:8s | strategic:every 3 game-min
+Dota Notifier v5 | Claude-powered | fast:8s | KDA-check:120s | force-call:5min | Ctrl+C to stop
 API key loaded. Model: claude-haiku-4-5-20251001
 ```
 
@@ -153,13 +204,13 @@ API key loaded. Model: claude-haiku-4-5-20251001
 
 GSI connects automatically when a match starts. The listener logs each tick when something meaningful changes (KDA, gold band, HP band). The notifier fires advice on events.
 
-Each Claude call shows timing and token usage:
+On game start you immediately get a draft-based game plan. During the game each Claude call shows timing and token usage:
 ```
-[>>] YOU ARE IN A FIGHT
-       1. Use Blink to close and land Fissure across their escape path.
-       2. Your BKB is ready — activate before Lina can stun you.
-       3. Ping Lion to follow up — he has Hex available.
-       [claude 743ms | in:98 out:87 | session in:450 out:320]
+[08:42:11] [!!] DRAGON KNIGHT DIED D:1
+       1. NOW: No buyback available — wait full respawn and use the time to plan purchases.
+       2. NEXT: Rush Power Treads then start Blink Dagger; you need mobility before fighting again.
+       3. WATCH: Enigma has Black Hole up — do not fight until your BKB is ready.
+       [claude 591ms | in:102 out:91 | session:204/182]
 ```
 
 ---
@@ -185,12 +236,18 @@ The notifier prints running token totals so you can track it live.
 
 ## Configuration
 
-Edit the top of `dota-notifier.ps1` to tune the loops:
+Edit the top of `dota-notifier.ps1` to tune the behaviour:
 
 ```powershell
-$fastPoll          = 8    # seconds per combat detection cycle
-$strategicInterval = 180  # game-seconds between strategic advice passes
+$fastPoll = 8   # seconds per event detection cycle (lower = more responsive, higher = fewer checks)
 ```
+
+The KDA check interval and force-call threshold are set in the main loop and scale automatically with game time:
+
+| Phase | Check interval | Force-call after |
+|---|---|---|
+| Normal (< 50 min) | 120s | 5 min silence |
+| Late game (> 50 min) | 360s | 7 min silence |
 
 ---
 
