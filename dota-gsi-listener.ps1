@@ -91,5 +91,9 @@ try {
     }
 } finally {
     $listener.Stop()
+    if (Test-Path $outputFile) {
+        Remove-Item $outputFile -Force
+        Write-Host "State file deleted." -ForegroundColor DarkGray
+    }
     Write-Host "Listener stopped."
 }
