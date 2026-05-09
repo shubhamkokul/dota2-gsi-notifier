@@ -22,9 +22,11 @@ if (Test-Path $envPath) {
         }
     }
 }
-$script:apiKey         = $env:ANTHROPIC_API_KEY
-$script:totalTokensIn  = 0
-$script:totalTokensOut = 0
+$script:apiKey            = $env:ANTHROPIC_API_KEY
+$script:totalTokensIn     = 0
+$script:totalTokensOut    = 0
+$script:lastApiCallTime   = [datetime]::MinValue
+$script:minApiGapSeconds  = 12   # never fire Claude faster than this
 
 # ── Output ─────────────────────────────────────────────────────────────────────
 # [!!] red  = urgent (fight, death, tower, low HP)
@@ -130,6 +132,14 @@ function Get-ClaudeAdvice($trigger, $ctx) {
     if (-not $script:apiKey) {
         return @("No API key — add ANTHROPIC_API_KEY to .env and restart")
     }
+
+    $secondsSinceLast = ([datetime]::Now - $script:lastApiCallTime).TotalSeconds
+    if ($secondsSinceLast -lt $script:minApiGapSeconds) {
+        $wait = [math]::Ceiling($script:minApiGapSeconds - $secondsSinceLast)
+        Write-Host ("       [rate-limit guard: waiting ${wait}s before next call]") -ForegroundColor DarkGray
+        Start-Sleep -Seconds $wait
+    }
+    $script:lastApiCallTime = [datetime]::Now
 
     $systemPrompt = "You are a Dota 2 in-game coach. Respond in exactly this format — no deviations, no preamble:
 1. NOW: [what to do this second]

@@ -64,9 +64,17 @@ try {
 
                 $gold = if ($state.player) { $state.player.gold } else { 0 }
 
-                $gs = if ($state.map) { $state.map.game_state } else { "" }
-                if ($state.hero -and $gs -in @("DOTA_GAMERULES_STATE_PRE_GAME","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS")) {
-                    Write-Host ("[$([datetime]::Now.ToString('HH:mm:ss'))] $tStr | $hero HP:$hp% | KDA:$kda | $($gold)g | $gs")
+                $gs       = if ($state.map) { $state.map.game_state } else { "" }
+                $goldBand = [math]::Floor($gold / 500)
+                $hpBand   = [math]::Floor($hp   / 20)
+
+                $changed = ($kda -ne $script:lastKDA) -or ($goldBand -ne $script:lastGoldBand) -or ($hpBand -ne $script:lastHpBand)
+
+                if ($changed -and $state.hero -and $gs -in @("DOTA_GAMERULES_STATE_PRE_GAME","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS")) {
+                    Write-Host ("[$([datetime]::Now.ToString('HH:mm:ss'))] $tStr | $hero HP:$hp% | KDA:$kda | $($gold)g")
+                    $script:lastKDA      = $kda
+                    $script:lastGoldBand = $goldBand
+                    $script:lastHpBand   = $hpBand
                 }
             } catch { }
         }
